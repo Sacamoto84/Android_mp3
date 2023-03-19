@@ -1,58 +1,77 @@
 package com.example.mp3
 
+import android.content.res.AssetFileDescriptor
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.MediaPlayer
+import android.media.audiofx.Visualizer
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.example.mp3.ui.theme.Mp3Theme
 import javazoom.jl.decoder.Bitstream
 import javazoom.jl.decoder.Decoder
 import javazoom.jl.decoder.Header
 import javazoom.jl.decoder.SampleBuffer
+import javazoom.jl.player.Player
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import java.io.FileInputStream
+import java.net.URI
 import java.net.URL
+import kotlin.math.sqrt
 
 
-class MainActivity : ComponentActivity() {
+var refresh by mutableStateOf(0)
+private const val CAPTURE_SIZE = 1024
+var _waveform: IntArray = IntArray(CAPTURE_SIZE)
+var _fft: IntArray = IntArray(CAPTURE_SIZE)
+
+var RMSList = ArrayDeque<Int>()
+
+var measurement: Visualizer.MeasurementPeakRms = Visualizer.MeasurementPeakRms()
+
+class MainActivity : ComponentActivity(), Visualizer.OnDataCaptureListener {
+
+
+    var visualiser: Visualizer? = null
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-
-        // JLayer decoder
-        //val decoder = Decoder()
         val mDecoder = Decoder() //? = null
-        //var mAudioTrack: AudioTrack? = null
-        //val sampleRate = 44100
-
-//        val minBufferSize = AudioTrack.getMinBufferSize(
-//            sampleRate,
-//            AudioFormat.CHANNEL_OUT_STEREO,
-//            AudioFormat.ENCODING_PCM_16BIT
-//        )
-//
-//        val mAudioTrack = AudioTrack(
-//            AudioManager.STREAM_MUSIC,
-//            sampleRate,
-//            AudioFormat.CHANNEL_OUT_STEREO,
-//            AudioFormat.ENCODING_PCM_16BIT,
-//            minBufferSize,
-//            AudioTrack.MODE_STREAM
-//        )
 
         val mAudioTrack = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
             .setAudioFormat(
@@ -63,24 +82,38 @@ class MainActivity : ComponentActivity() {
                     .build()
             )
             .setBufferSizeInBytes(
-                AudioTrack.getMinBufferSize(
-                    48000,
-                    AudioFormat.CHANNEL_OUT_STEREO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
+                1024 * 1024
+//                AudioTrack.getMinBufferSize(
+//                    48000,
+//                    AudioFormat.CHANNEL_OUT_MONO,
+//                    AudioFormat.ENCODING_PCM_16BIT
+//                )
             )
             .build()
 
 
         val thread = Thread {
             try {
-                val `in` = URL("http://icecast.omroep.nl:80/radio1-sb-mp3")
-                    .openConnection()
-                    .getInputStream()
+
+
+//                val `in` = URL(
+//                    //"http://icecast.omroep.nl:80/radio1-sb-mp3"
+//                    "http://chanson.hostingradio.ru:8041/chanson-romantic128.mp3"
+//
+//                )
+//                    .openConnection()
+//                    .getInputStream()
+
+                val assetFileDescriptor: AssetFileDescriptor =
+                    applicationContext.assets.openFd("me.mp3")
+                val fileDescriptor = assetFileDescriptor.fileDescriptor
+                val `in` = FileInputStream(fileDescriptor)
+
+
                 val bitstream = Bitstream(`in`)
                 val READ_THRESHOLD = 2147483647
                 var framesReaded = 0
-                var header : Header? = null
+                var header: Header? = null
 
                 while (framesReaded++ <= READ_THRESHOLD && bitstream.readFrame()
                         .also { header = it } != null
@@ -88,14 +121,51 @@ class MainActivity : ComponentActivity() {
                     val sampleBuffer = mDecoder.decodeFrame(header, bitstream) as SampleBuffer
                     val buffer = sampleBuffer.buffer
                     mAudioTrack.write(buffer, 0, buffer.size)
+
+                    //calcRMS(buffer, buffer.size)
+//                    RMSList.addFirst(mRMS/128)
+//                    while (RMSList.size > 512) {
+//                        RMSList.removeLast()
+//                    }
+
+
+                    println(buffer.size)
+
                     bitstream.closeFrame()
+
+
                 }
             } catch (e: Exception) {
-               print( e.printStackTrace() )
+                print(e.printStackTrace())
             }
         }
         thread.start()
         mAudioTrack.play()
+
+        visualiser = Visualizer(0)
+        visualiser!!.setDataCaptureListener(this, Visualizer.getMaxCaptureRate(), true, true)
+        visualiser!!.captureSize = CAPTURE_SIZE
+
+
+        visualiser!!.measurementMode = Visualizer.MEASUREMENT_MODE_PEAK_RMS;
+        //visualiser!!.scalingMode     = Visualizer.SCALING_MODE_NORMALIZED;
+
+        visualiser!!.enabled = true
+
+//        val assetFileDescriptor: AssetFileDescriptor = applicationContext.assets.openFd("me.mp3")
+//        val fileDescriptor = assetFileDescriptor.fileDescriptor
+//        val stream = FileInputStream(fileDescriptor)
+//
+//
+//        GlobalScope.launch(Dispatchers.Main) {
+//            val mPlayer = MediaPlayer.create(
+//                applicationContext,
+//                Uri.parse("http://chanson.hostingradio.ru:8041/chanson-romantic128.mp3")
+//            )
+//            mPlayer.isLooping = true
+//            mPlayer.start()
+//        }
+
 
         setContent {
             Mp3Theme {
@@ -109,14 +179,113 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+
+    override fun onWaveFormDataCapture(
+        visualizer: Visualizer?,
+        waveform: ByteArray?,
+        samplingRate: Int
+    ) {
+
+        if (waveform != null) {
+
+            for (i in 0 until CAPTURE_SIZE) {
+                _waveform[i] =
+                    if (waveform[i].toInt() > 0) waveform[i].toInt() - 128 else waveform[i].toInt() + 128
+            }
+            refresh++
+
+            visualiser!!.getMeasurementPeakRms(measurement)
+        }
+
+    }
+
+    override fun onFftDataCapture(visualizer: Visualizer?, fft: ByteArray?, samplingRate: Int) {
+        if (fft != null) {
+            for (i in 0 until CAPTURE_SIZE) {
+                _fft[i] = if (fft[i].toInt() > 0) fft[i].toInt() * -1 else fft[i].toInt()
+            }
+            refresh++
+        }
+    }
+
 }
+
+var mPeak = 0
+var mRMS by mutableStateOf(0)
+
+fun calcRMS(buffer: ShortArray, length: Int) {
+    var accumAbs = 0.0
+    mPeak = 0
+    for (i in 0 until length) {
+        val v: Int = kotlin.math.abs(buffer[i].toInt())
+        if (mPeak < v) {
+            mPeak = v
+        }
+        val `val` = buffer[i].toDouble()
+        accumAbs += `val` * `val`
+    }
+    mRMS = sqrt(accumAbs / length.toDouble()).toInt()
+}
+
 
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
+
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
     )
+    {
+
+        Text(
+            text = "Ебучее онлайн радио $refresh", color = Color.LightGray
+        )
+
+        Column {
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+            ) {
+                refresh
+                val path = Path()
+                path.moveTo(0f, size.height / 2f)
+                _waveform.forEachIndexed { index, byte ->
+                    path.lineTo(index.toFloat() * 2, size.height / 2 + byte * 3f)
+                }
+                drawPath(
+                    path = path,
+                    color = Color.Green,
+                    style = Stroke(width = 2f)
+                )
+            }
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(0.1f)
+            ) {
+                refresh
+                val path = Path()
+                path.moveTo(0f, size.height / 1.5f)
+                _fft.forEachIndexed { index, byte ->
+                    path.lineTo(index.toFloat() * 2, size.height / 1.5f + byte * 3f)
+                }
+                drawPath(
+                    path = path,
+                    color = Color.Green,
+                    style = Stroke(width = 2f)
+                )
+            }
+
+        }
+
+
+    }
 
 
 }
