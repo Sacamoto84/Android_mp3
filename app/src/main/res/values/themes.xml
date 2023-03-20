@@ -2,4 +2,15 @@
 <resources>
 
     <style name="Theme.Mp3" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.Mp3.Fullscreen" parent="Theme.Mp3">
+        <item name="android:actionBarStyle">@style/Widget.Theme.Mp3.ActionBar.Fullscreen</item>
+        <item name="android:windowActionBarOverlay">true</item>
+        <item name="android:windowBackground">@null</item>
+    </style>
+
+    <style name="ThemeOverlay.Mp3.FullscreenContainer" parent="">
+        <item name="fullscreenBackgroundColor">@color/light_blue_600</item>
+        <item name="fullscreenTextColor">@color/light_blue_A200</item>
+    </style>
 </resources>
