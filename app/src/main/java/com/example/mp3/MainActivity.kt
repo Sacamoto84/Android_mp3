@@ -50,6 +50,20 @@ var RMSList = ArrayDeque<Int>()
 
 var measurement: Visualizer.MeasurementPeakRms = Visualizer.MeasurementPeakRms()
 
+
+fun sss() {
+
+    "креведко" {
+        println("креведко")
+    }
+
+
+}
+
+private operator fun String.invoke(value: () -> Unit) {
+}
+
+
 class MainActivity : ComponentActivity(), Visualizer.OnDataCaptureListener {
 
 
@@ -59,8 +73,10 @@ class MainActivity : ComponentActivity(), Visualizer.OnDataCaptureListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val intent = Intent(this, ChartActivity::class.java)
-        this.startActivity(intent)
+        sss()
+
+        //val intent = Intent(this, MainActivity2::class.java)
+        //this.startActivity(intent)
 
 
 
@@ -185,18 +201,14 @@ class MainActivity : ComponentActivity(), Visualizer.OnDataCaptureListener {
         waveform: ByteArray?,
         samplingRate: Int
     ) {
-
         if (waveform != null) {
-
             for (i in 0 until CAPTURE_SIZE) {
                 _waveform[i] =
                     if (waveform[i].toInt() > 0) waveform[i].toInt() - 128 else waveform[i].toInt() + 128
             }
             refresh++
-
             visualiser!!.getMeasurementPeakRms(measurement)
         }
-
     }
 
     override fun onFftDataCapture(visualizer: Visualizer?, fft: ByteArray?, samplingRate: Int) {
